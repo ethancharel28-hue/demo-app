@@ -1,0 +1,318 @@
+// firebase.js
+import { initializeApp } from "firebase/app";
+import { getAuth } from "firebase/auth";
+import { getFirestore, serverTimestamp } from "firebase/firestore";
+
+// Replace with your Firebase config
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID",
+};
+
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const now = serverTimestamp;
+
+// App.js
+import { useEffect, useState } from "react";
+import { NavigationContainer } from "@react-navigation/native";
+import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { auth } from "./firebase";
+
+import AuthScreen from "./screens/AuthScreen";
+import ChatsScreen from "./screens/ChatsScreen";
+import ChatRoomScreen from "./screens/ChatRoomScreen";
+
+const Stack = createNativeStackNavigator();
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u || null);
+      setReady(true);
+    });
+    return unsub;
+  }, []);
+
+  if (!ready) return null;
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator>
+        {user ? (
+          <>
+            <Stack.Screen
+              name="Chats"
+              component={ChatsScreen}
+              options={{
+                title: "Chats",
+                headerRight: () => (
+                  <button onClick={() => signOut(auth)}>Logout</button>
+                ),
+              }}
+            />
+            <Stack.Screen
+              name="ChatRoom"
+              component={ChatRoomScreen}
+              options={({ route }) => ({ title: route.params?.title || "Chat" })}
+            />
+          </>
+        ) : (
+          <Stack.Screen
+            name="Auth"
+            component={AuthScreen}
+            options={{ headerShown: false }}
+          />
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+// screens/AuthScreen.js
+import { useState } from "react";
+import { View, TextInput, Button, Text, StyleSheet } from "react-native";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { auth, db } from "../firebase";
+
+export default function AuthScreen() {
+  const [mode, setMode] = useState("signin"); // 'signin' | 'signup'
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [err, setErr] = useState("");
+
+  const onSubmit = async () => {
+    setErr("");
+    try {
+      if (mode === "signup") {
+        const cred = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        await updateProfile(cred.user, { displayName: displayName || email.split("@")[0] });
+        await setDoc(doc(db, "users", cred.user.uid), {
+          uid: cred.user.uid,
+          email: cred.user.email,
+          displayName: cred.user.displayName,
+          createdAt: serverTimestamp(),
+        });
+      } else {
+        await signInWithEmailAndPassword(auth, email.trim(), password);
+      }
+    } catch (e) {
+      setErr(e.message);
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>{mode === "signup" ? "Create account" : "Welcome back"}</Text>
+      {mode === "signup" && (
+        <TextInput
+          style={styles.input}
+          placeholder="Display name"
+          value={displayName}
+          onChangeText={setDisplayName}
+        />
+      )}
+      <TextInput
+        style={styles.input}
+        placeholder="Email"
+        autoCapitalize="none"
+        keyboardType="email-address"
+        value={email}
+        onChangeText={setEmail}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Password"
+        secureTextEntry
+        value={password}
+        onChangeText={setPassword}
+      />
+      {err ? <Text style={styles.error}>{err}</Text> : null}
+      <Button title={mode === "signup" ? "Sign up" : "Sign in"} onPress={onSubmit} />
+      <Text style={styles.link} onPress={() => setMode(mode === "signup" ? "signin" : "signup")}>
+        {mode === "signup" ? "Have an account? Sign in" : "New here? Create account"}
+      </Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 24, justifyContent: "center", gap: 12 },
+  title: { fontSize: 24, fontWeight: "600", marginBottom: 12 },
+  input: { borderWidth: 1, borderColor: "#ccc", padding: 12, borderRadius: 8 },
+  error: { color: "crimson" },
+  link: { color: "#2563eb", marginTop: 12 },
+});
+// screens/ChatsScreen.js
+import { useEffect, useMemo, useState } from "react";
+import { View, Text, TextInput, Button, FlatList, Pressable, StyleSheet } from "react-native";
+import { auth, db } from "../firebase";
+import {
+  addDoc,
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  where,
+  getDocs,
+  doc,
+  setDoc,
+} from "firebase/firestore";
+
+export default function ChatsScreen({ navigation }) {
+  const user = auth.currentUser;
+  const [chats, setChats] = useState([]);
+  const [email, setEmail] = useState("");
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "chats"),
+      where("participants", "array-contains", user.uid),
+      orderBy("updatedAt", "desc")
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      setChats(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
+    return unsub;
+  }, [user.uid]);
+
+  const startChat = async () => {
+    const otherEmail = email.trim().toLowerCase();
+    if (!otherEmail || otherEmail === user.email?.toLowerCase()) return;
+
+    // Find recipient by email
+    const uQ = query(collection(db, "users"), where("email", "==", otherEmail));
+    const res = await getDocs(uQ);
+    if (res.empty) {
+      alert("No user with that email.");
+      return;
+    }
+    const other = res.docs[0].data();
+
+    // Check if chat already exists (client-side check for UX; rules still protect)
+    const existing = chats.find(
+      (c) => c.participants.includes(user.uid) && c.participants.includes(other.uid)
+    );
+    if (existing) {
+      navigation.navigate("ChatRoom", { chatId: existing.id, title: other.displayName || other.email });
+      setEmail("");
+      return;
+    }
+
+    // Create chat
+    const chat = await addDoc(collection(db, "chats"), {
+      participants: [user.uid, other.uid],
+      participantInfo: {
+        [user.uid]: { displayName: user.displayName || user.email },
+        [other.uid]: { displayName: other.displayName || other.email },
+      },
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      lastMessage: "",
+    });
+
+    // Optional: ensure a minimal index doc for each user (not required)
+    await setDoc(doc(db, "chats", chat.id), { id: chat.id }, { merge: true });
+
+    navigation.navigate("ChatRoom", { chatId: chat.id, title: other.displayName || other.email });
+    setEmail("");
+  };
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.header}>Start a new chat</Text>
+      <View style={styles.row}>
+        <TextInput
+          style={styles.input}
+          placeholder="Friend's email"
+          autoCapitalize="none"
+          keyboardType="email-address"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <Button title="Chat" onPress={startChat} />
+      </View>
+
+      <Text style={styles.header}>Your chats</Text>
+      <FlatList
+        data={chats}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => {
+          const otherId = item.participants.find((p) => p !== user.uid);
+          const title =
+            item.participantInfo?.[otherId]?.displayName || "Chat";
+          return (
+            <Pressable
+              style={styles.chatItem}
+              onPress={() =>
+                navigation.navigate("ChatRoom", { chatId: item.id, title })
+              }
+            >
+              <Text style={styles.chatTitle}>{title}</Text>
+              <Text style={styles.last}>{item.lastMessage}</Text>
+            </Pressable>
+          );
+        }}
+        ListEmptyComponent={<Text>No chats yet. Start one above.</Text>}
+      />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, padding: 16, gap: 12 },
+  header: { fontSize: 18, fontWeight: "600", marginTop: 8 },
+  row: { flexDirection: "row", gap: 8, alignItems: "center" },
+  input: { flex: 1, borderWidth: 1, borderColor: "#ccc", padding: 10, borderRadius: 8 },
+  chatItem: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#eee" },
+  chatTitle: { fontSize: 16, fontWeight: "600" },
+  last: { color: "#555", marginTop: 4 },
+});
+// widgets/MessageBubble.js
+import { View, Text, StyleSheet } from "react-native";
+
+export default function MessageBubble({ mine, text }) {
+  return (
+    <View style={[styles.wrap, mine ? styles.right : styles.left]}>
+      <View style={[styles.bubble, mine ? styles.mine : styles.theirs]}>
+        <Text style={styles.text}>{text}</Text>
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  wrap: { flexDirection: "row" },
+  left: { justifyContent: "flex-start" },
+  right: { justifyContent: "flex-end" },
+  bubble: {
+    maxWidth: "80%",
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+  },
+  mine: { backgroundColor: "#dcf8c6", borderTopRightRadius: 4 },
+  theirs: { backgroundColor: "#fff", borderTopLeftRadius: 4, borderWidth: 1, borderColor: "#eee" },
+  text: { fontSize: 16 },
+});
+match /users/{uid} {
+  allow read: if isSignedIn();
+  allow create: if isSignedIn() && request.auth.uid == uid;
+  text: { fontSize: 16 },
+});
