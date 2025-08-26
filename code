@@ -1,78 +1,303 @@
-import React, { useState } from 'react';
-
-// Dummy chat rooms and users
-const ROOMS = [
-  { id: 1, name: 'Best Friends', messages: [{ from: 'Alice', text: 'Hey besties!' }] },
-  { id: 2, name: 'Study Group', messages: [{ from: 'Bob', text: 'Ready for the test?' }] },
-];
-
-function Login({ onLogin }: { onLogin: (user: string) => void }) {
-  const [username, setUsername] = useState('');
-  return (
-    <div style={{ padding: 32 }}>
-      <h2>Login</h2>
-      <input
-        placeholder="Enter your username"
-        value={username}
-        onChange={e => setUsername(e.target.value)}
-      />
-      <button onClick={() => username && onLogin(username)}>Login</button>
-    </div>
-  );
-}
-
-function RoomList({ rooms, onSelect, user, onLogout }: any) {
-  return (
-    <div style={{ padding: 32 }}>
-      <h2>Chat Rooms</h2>
-      <div>Welcome, {user}! <button onClick={onLogout}>Logout</button></div>
-      <ul>
-        {rooms.map((room: any) => (
-          <li key={room.id}>
-            <button onClick={() => onSelect(room)}>{room.name}</button>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function ChatRoom({ room, user, onBack }: any) {
-  const [input, setInput] = useState('');
-  const [messages, setMessages] = useState(room.messages);
-  const send = () => {
-    if (input.trim()) {
-      setMessages([...messages, { from: user, text: input }]);
-      setInput('');
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Friends Chat</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root {
+      --bg:#0b141a; --panel:#111b21; --panel2:#202c33; --text:#e9edef; --muted:#8696a0; --accent:#25d366;
+      --bubble-me:#005c4b; --bubble-them:#202c33;
     }
-  };
-  return (
-    <div style={{ padding: 32 }}>
-      <button onClick={onBack}>Back</button>
-      <h2>{room.name}</h2>
-      <div style={{ minHeight: 100, border: '1px solid #ccc', marginBottom: 8 }}>
-        {messages.map((msg: any, i: number) => (
-          <div key={i}><b>{msg.from}:</b> {msg.text}</div>
-        ))}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font:14px system-ui,Segoe UI,Arial}
+    a{color:var(--accent)}
+    .app{display:grid;grid-template-columns:320px 1fr;height:100vh}
+    .col{border-right:1px solid #1f2c33}
+    .panel{background:var(--panel);height:100%}
+    .header{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #1f2c33}
+    .header h2{margin:0;font-size:16px}
+    .btn{background:var(--accent);color:#092e16;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;font-weight:600}
+    .btn.secondary{background:transparent;color:var(--text);border:1px solid #334047}
+    .input, .input-row input{width:100%;background:#2a3942;border:1px solid #3a4b53;border-radius:8px;padding:10px;color:var(--text)}
+    .input-row{display:flex;gap:8px}
+    .muted{color:var(--muted)}
+    .section{padding:12px 16px;border-bottom:1px solid #1f2c33}
+    .list{overflow:auto;height:calc(100% - 140px)}
+    .friend{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #1f2c33;cursor:pointer}
+    .friend:hover{background:#182229}
+    .chat{display:flex;flex-direction:column;height:100%}
+    .messages{flex:1;overflow:auto;padding:12px 16px;background:var(--panel2)}
+    .bubble{max-width:70%;margin:6px 0;padding:8px 12px;border-radius:12px;line-height:1.3;white-space:pre-wrap}
+    .me{background:var(--bubble-me);margin-left:auto;border-top-right-radius:4px}
+    .them{background:var(--bubble-them);border:1px solid #2f3b41;border-top-left-radius:4px}
+    .composer{display:flex;gap:8px;padding:12px;background:var(--panel)}
+    .auth{max-width:420px;margin:8vh auto;padding:24px;background:var(--panel);border:1px solid #1f2c33;border-radius:12px}
+    .auth h1{margin-top:0}
+    .row{display:flex;gap:8px}
+    @media (max-width: 900px){ .app{grid-template-columns:1fr} .col{display:none} .col.show{display:block} }
+  </style>
+</head>
+<body>
+  <div id="auth" class="auth" style="display:none">
+    <h1>Friends Chat</h1>
+    <p class="muted">Sign up or sign in with email — chats are between friends you add, not anonymous.</p>
+    <div style="display:grid;gap:10px;margin-top:12px">
+      <input id="displayName" class="input" placeholder="Display name (for sign up)" />
+      <input id="email" class="input" placeholder="Email" type="email" />
+      <input id="password" class="input" placeholder="Password" type="password" />
+      <div class="row">
+        <button id="signup" class="btn" style="flex:1">Sign up</button>
+        <button id="signin" class="btn secondary" style="flex:1">Sign in</button>
       </div>
-      <input
-        value={input}
-        onChange={e => setInput(e.target.value)}
-        placeholder="Type a message"
-        onKeyDown={e => e.key === 'Enter' && send()}
-      />
-      <button onClick={send}>Send</button>
+      <div id="authErr" class="muted"></div>
     </div>
-  );
-}
+  </div>
 
-export default function FriendsChatApp() {
-  const [user, setUser] = useState<string | null>(null);
-  const [selectedRoom, setSelectedRoom] = useState<any>(null);
-  const [rooms] = useState(ROOMS);
+  <div id="app" class="app" style="display:none">
+    <!-- Left: friends + start chat -->
+    <div class="col show">
+      <div class="panel">
+        <div class="header">
+          <h2>Friends</h2>
+          <button id="logout" class="btn secondary">Log out</button>
+        </div>
 
-  if (!user) return <Login onLogin={setUser} />;
-  if (selectedRoom)
-    return <ChatRoom room={selectedRoom} user={user} onBack={() => setSelectedRoom(null)} />;
-  return <RoomList rooms={rooms} onSelect={setSelectedRoom} user={user} onLogout={() => setUser(null)} />;
-}
+        <div class="section" style="display:grid;gap:8px">
+          <div class="muted" id="meLine">Signed in</div>
+          <div class="input-row">
+            <input id="addFriendEmail" placeholder="Friend email to add" />
+            <button id="addFriendBtn" class="btn">Add</button>
+          </div>
+          <div class="muted">Tip: Your friend must have created an account already.</div>
+          <div id="addFriendMsg" class="muted"></div>
+        </div>
+
+        <div class="section"><strong>Friends list</strong></div>
+        <div id="friendsList" class="list"></div>
+      </div>
+    </div>
+
+    <!-- Right: chat -->
+    <div class="chat">
+      <div class="header">
+        <h2 id="chatTitle">Select a friend to chat</h2>
+        <div class="muted" id="presenceHint"></div>
+      </div>
+      <div id="messages" class="messages"></div>
+      <div class="composer">
+        <input id="messageInput" class="input" placeholder="Type a message" />
+        <button id="sendBtn" class="btn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Firebase (Compat for simplicity in a single file) -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-firestore-compat.js"></script>
+  <script>
+    // 1) Replace with your Firebase project config (Project settings → Web app)
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "YOUR_AUTH_DOMAIN",
+      projectId: "YOUR_PROJECT_ID",
+      storageBucket: "YOUR_STORAGE_BUCKET",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID",
+    };
+
+    // 2) Initialize
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+    const now = firebase.firestore.FieldValue.serverTimestamp;
+
+    // UI refs
+    const $ = (id) => document.getElementById(id);
+    const authView = $("auth");
+    const appView = $("app");
+    const meLine = $("meLine");
+    const addFriendEmail = $("addFriendEmail");
+    const addFriendBtn = $("addFriendBtn");
+    const addFriendMsg = $("addFriendMsg");
+    const friendsList = $("friendsList");
+    const chatTitle = $("chatTitle");
+    const messagesEl = $("messages");
+    const messageInput = $("messageInput");
+    const sendBtn = $("sendBtn");
+
+    let me = null;
+    let currentChatId = null;
+    let unsubscribeMessages = null;
+    let unsubscribeFriends = null;
+
+    // Helpers
+    const idForPair = (a, b) => [a, b].sort().join("_");
+
+    const renderMessage = (msg) => {
+      const div = document.createElement("div");
+      div.className = "bubble " + (msg.senderId === me.uid ? "me" : "them");
+      div.textContent = msg.text || "";
+      messagesEl.appendChild(div);
+    };
+
+    const scrollToBottom = () => {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    };
+
+    const renderFriends = (arr) => {
+      friendsList.innerHTML = "";
+      if (!arr.length) {
+        friendsList.innerHTML = '<div class="muted" style="padding:16px">No friends yet. Add one by email above.</div>';
+        return;
+      }
+      arr.forEach((f) => {
+        const row = document.createElement("div");
+        row.className = "friend";
+        const left = document.createElement("div");
+        left.innerHTML = <div><strong>${f.displayName || f.email}</strong></div><div class="muted">${f.email}</div>;
+        const right = document.createElement("div");
+        const btn = document.createElement("button");
+        btn.className = "btn";
+        btn.textContent = "Open chat";
+        btn.onclick = () => openChatWith(f);
+        right.appendChild(btn);
+        row.append(left, right);
+        friendsList.appendChild(row);
+      });
+    };
+
+    const openChatWith = async (friend) => {
+      const chatId = idForPair(me.uid, friend.uid);
+      currentChatId = chatId;
+      chatTitle.textContent = friend.displayName || friend.email || "Chat";
+      messagesEl.innerHTML = "";
+      if (unsubscribeMessages) { unsubscribeMessages(); unsubscribeMessages = null; }
+
+      // Ensure chat doc exists
+      const chatRef = db.collection("chats").doc(chatId);
+      const chatSnap = await chatRef.get();
+      if (!chatSnap.exists) {
+        await chatRef.set({
+          participants: [me.uid, friend.uid],
+          participantInfo: {
+            [me.uid]: { displayName: me.displayName || me.email },
+            [friend.uid]: { displayName: friend.displayName || friend.email },
+          },
+          createdAt: now(),
+          updatedAt: now(),
+          lastMessage: "",
+        }, { merge: true });
+      }
+
+      // Subscribe to messages
+      unsubscribeMessages = chatRef.collection("messages")
+        .orderBy("createdAt", "asc")
+        .onSnapshot((snap) => {
+          messagesEl.innerHTML = "";
+          snap.forEach((d) => renderMessage(d.data()));
+          scrollToBottom();
+        });
+    };
+
+    const sendMessage = async () => {
+      const text = messageInput.value.trim();
+      if (!text || !currentChatId) return;
+      const chatRef = db.collection("chats").doc(currentChatId);
+      await chatRef.collection("messages").add({
+        text, senderId: me.uid, createdAt: now(),
+      });
+      await chatRef.set({ updatedAt: now(), lastMessage: text.slice(0, 80) }, { merge: true });
+      messageInput.value = "";
+      messageInput.focus();
+    };
+
+    sendBtn.onclick = sendMessage;
+    messageInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    });
+
+    // Auth UI
+    const showAuth = () => { authView.style.display = "block"; appView.style.display = "none"; };
+    const showApp  = () => { authView.style.display = "none"; appView.style.display  = "grid"; };
+
+    $("signup").onclick = async () => {
+      $("authErr").textContent = "";
+      try {
+        const email = $("email").value.trim().toLowerCase();
+        const password = $("password").value;
+        const displayName = $("displayName").value.trim();
+        const { user } = await auth.createUserWithEmailAndPassword(email, password);
+        await user.updateProfile({ displayName: displayName || email.split("@")[0] });
+        await db.collection("users").doc(user.uid).set({
+          uid: user.uid, email: user.email, displayName: user.displayName, createdAt: now(),
+        }, { merge: true });
+      } catch (e) {
+        $("authErr").textContent = e.message;
+      }
+    };
+
+    $("signin").onclick = async () => {
+      $("authErr").textContent = "";
+      try {
+        const email = $("email").value.trim().toLowerCase();
+        const password = $("password").value;
+        await auth.signInWithEmailAndPassword(email, password);
+      } catch (e) {
+        $("authErr").textContent = e.message;
+      }
+    };
+
+    $("logout").onclick = () => auth.signOut();
+
+    // Friends
+    addFriendBtn.onclick = async () => {
+      addFriendMsg.textContent = "";
+      const email = addFriendEmail.value.trim().toLowerCase();
+      if (!email || email === me.email?.toLowerCase()) { addFriendMsg.textContent = "Enter a valid friend's email."; return; }
+      try {
+        const q = await db.collection("users").where("email","==",email).limit(1).get();
+        if (q.empty) { addFriendMsg.textContent = "No user found with that email."; return; }
+        const other = q.docs[0].data();
+        await db.collection("users").doc(me.uid).collection("friends").doc(other.uid).set({
+          uid: other.uid, email: other.email, displayName: other.displayName || other.email, addedAt: now(),
+        });
+        addFriendEmail.value = "";
+        addFriendMsg.textContent = "Friend added. Open chat from the list.";
+      } catch (e) {
+        addFriendMsg.textContent = e.message;
+      }
+    };
+
+    const watchFriends = () => {
+      if (unsubscribeFriends) { unsubscribeFriends(); unsubscribeFriends = null; }
+      unsubscribeFriends = db.collection("users").doc(me.uid).collection("friends")
+        .orderBy("addedAt","desc")
+        .onSnapshot((snap) => {
+          const arr = snap.docs.map(d => d.data());
+          renderFriends(arr);
+        });
+    };
+
+    // Auth state listener
+    auth.onAuthStateChanged(async (user) => {
+      if (!user) {
+        me = null; currentChatId = null;
+        if (unsubscribeFriends) { unsubscribeFriends(); unsubscribeFriends = null; }
+        if (unsubscribeMessages) { unsubscribeMessages(); unsubscribeMessages = null; }
+        showAuth();
+        return;
+      }
+      me = user;
+      // Ensure profile doc exists (useful if user signed in before profile creation)
+      await db.collection("users").doc(me.uid).set({
+        uid: me.uid, email: me.email, displayName: me.displayName || me.email, lastSeen: now(),
+      }, { merge: true });
+
+      meLine.textContent = Signed in as ${me.displayName || me.email};
+      showApp();
+      watchFriends();
+    });
+  </script>
+</body>
+</html>
