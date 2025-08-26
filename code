@@ -1,0 +1,78 @@
+import React, { useState } from 'react';
+
+// Dummy chat rooms and users
+const ROOMS = [
+  { id: 1, name: 'Best Friends', messages: [{ from: 'Alice', text: 'Hey besties!' }] },
+  { id: 2, name: 'Study Group', messages: [{ from: 'Bob', text: 'Ready for the test?' }] },
+];
+
+function Login({ onLogin }: { onLogin: (user: string) => void }) {
+  const [username, setUsername] = useState('');
+  return (
+    <div style={{ padding: 32 }}>
+      <h2>Login</h2>
+      <input
+        placeholder="Enter your username"
+        value={username}
+        onChange={e => setUsername(e.target.value)}
+      />
+      <button onClick={() => username && onLogin(username)}>Login</button>
+    </div>
+  );
+}
+
+function RoomList({ rooms, onSelect, user, onLogout }: any) {
+  return (
+    <div style={{ padding: 32 }}>
+      <h2>Chat Rooms</h2>
+      <div>Welcome, {user}! <button onClick={onLogout}>Logout</button></div>
+      <ul>
+        {rooms.map((room: any) => (
+          <li key={room.id}>
+            <button onClick={() => onSelect(room)}>{room.name}</button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ChatRoom({ room, user, onBack }: any) {
+  const [input, setInput] = useState('');
+  const [messages, setMessages] = useState(room.messages);
+  const send = () => {
+    if (input.trim()) {
+      setMessages([...messages, { from: user, text: input }]);
+      setInput('');
+    }
+  };
+  return (
+    <div style={{ padding: 32 }}>
+      <button onClick={onBack}>Back</button>
+      <h2>{room.name}</h2>
+      <div style={{ minHeight: 100, border: '1px solid #ccc', marginBottom: 8 }}>
+        {messages.map((msg: any, i: number) => (
+          <div key={i}><b>{msg.from}:</b> {msg.text}</div>
+        ))}
+      </div>
+      <input
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        placeholder="Type a message"
+        onKeyDown={e => e.key === 'Enter' && send()}
+      />
+      <button onClick={send}>Send</button>
+    </div>
+  );
+}
+
+export default function FriendsChatApp() {
+  const [user, setUser] = useState<string | null>(null);
+  const [selectedRoom, setSelectedRoom] = useState<any>(null);
+  const [rooms] = useState(ROOMS);
+
+  if (!user) return <Login onLogin={setUser} />;
+  if (selectedRoom)
+    return <ChatRoom room={selectedRoom} user={user} onBack={() => setSelectedRoom(null)} />;
+  return <RoomList rooms={rooms} onSelect={setSelectedRoom} user={user} onLogout={() => setUser(null)} />;
+}
